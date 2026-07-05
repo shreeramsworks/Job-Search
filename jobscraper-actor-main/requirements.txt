@@ -6,3 +6,4 @@ python-jobspy
 python-multipart
 pydantic
 curl-cffi
+lxml
