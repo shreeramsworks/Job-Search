@@ -5,3 +5,4 @@ openpyxl
 python-jobspy
 python-multipart
 pydantic
+curl-cffi
