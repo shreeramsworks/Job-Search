@@ -7,3 +7,11 @@ python-multipart
 pydantic
 curl-cffi
 lxml
+cssselect
+orjson
+tld
+w3lib
+browserforge
+apify-fingerprint-datapoints
+msgspec
+protego
