@@ -307,7 +307,12 @@ class LinkedIn(Scraper):
         :param metadata_card
         :return: location
         """
-        location = Location(country=Country.from_string(self.country))
+        try:
+            self_country = Country.from_string(self.country)
+        except ValueError:
+            self_country = self.country
+
+        location = Location(country=self_country)
         if metadata_card is not None:
             location_tag = metadata_card.find(
                 "span", class_="job-search-card__location"
@@ -319,11 +324,14 @@ class LinkedIn(Scraper):
                 location = Location(
                     city=city,
                     state=state,
-                    country=Country.from_string(self.country),
+                    country=self_country,
                 )
             elif len(parts) == 3:
-                city, state, country = parts
-                country = Country.from_string(country)
+                city, state, country_str = parts
+                try:
+                    country = Country.from_string(country_str)
+                except ValueError:
+                    country = country_str
                 location = Location(city=city, state=state, country=country)
         return location
 
