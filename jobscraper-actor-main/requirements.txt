@@ -15,3 +15,5 @@ browserforge
 apify-fingerprint-datapoints
 msgspec
 protego
+playwright==1.60.0
+patchright==1.60.1
