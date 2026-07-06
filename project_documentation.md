@@ -251,7 +251,7 @@ When integrating with n8n nodes:
    * **If n8n and the API run on the same VPS, and both are native (no Docker)**:
      Use localhost: `http://127.0.0.1:5001/api/scrape`
    * **If n8n is on a different server (e.g. n8n is on server A, API is on server B)**:
-     Use the public hostname: `http://vmi3318933.contaboserver.net:5001/api/scrape`
+     Use the public IP or domain name: `http://<your-vps-ip>:5001/api/scrape`
 4. Toggle **Send Body** to `On`.
 5. Set **Body Content Type** to `JSON`.
 6. Insert the search payload in the **Body** field.
