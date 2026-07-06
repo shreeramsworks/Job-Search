@@ -72,26 +72,28 @@ All endpoints are hosted locally by default on port `5001`.
 * **Request JSON Schema**:
   ```json
   {
-    "site_name": ["indeed", "linkedin", "glassdoor"],
-    "search_term": "react developer",
-    "location": "Remote",
-    "is_remote": true,
-    "job_type": "fulltime",
+    "site_name": [],
+    "search_term": "ai engineer",
+    "google_search_term": "automation",
     "hours_old": 48,
-    "results_wanted": 30,
+    "results_wanted": 20,
     "country_indeed": "USA",
-    "linkedin_fetch_description": false,
+    "is_remote": true,
     "enforce_annual_salary": true,
+    "easy_apply": true,
+    "description_format": "markdown",
     "output_format": "json"
   }
   ```
   
   #### Request Parameter Definitions:
-  * `site_name` (*Array of Strings*, Optional): Target sites to scrape. Supported: `["indeed", "linkedin", "zip_recruiter", "glassdoor", "google", "bayt", "naukri"]`. Default: `null` (scrapes all).
+  * `site_name` (*Array of Strings*, Optional): Target sites to scrape. Supported: `["indeed", "linkedin", "zip_recruiter", "glassdoor", "google", "bayt", "naukri", "bdjobs"]`. If `null` or `[]` (empty list), the engine defaults to querying **all supported job boards**.
   * `search_term` (*String*, Optional): Search query keyword (e.g. `"python developer"`).
+  * `google_search_term` (*String*, Optional): Specific custom search query for the Google Jobs scraper node.
   * `location` (*String*, Optional): Location filter (e.g. `"San Francisco, CA"`, `"Remote"`).
   * `is_remote` (*Boolean*, Default: `false`): Filter for remote jobs only.
-  * `job_type` (*String*, Optional): employment type. Options: `"fulltime"`, `"parttime"`, `"internship"`, `"contract"`.
+  * `easy_apply` (*Boolean*, Optional): Filter for jobs with the easy apply option.
+  * `job_type` (*String*, Optional): Employment type. Options: `"fulltime"`, `"parttime"`, `"internship"`, `"contract"`.
   * `results_wanted` (*Integer*, Default: `20`): Max results to fetch per board (Range: `1-100`).
   * `country_indeed` (*String*, Default: `"USA"`): Target country code for Indeed/Glassdoor.
   * `linkedin_fetch_description` (*Boolean*, Default: `true`): Set to `false` to speed up requests (does not pull the full description body).
@@ -102,26 +104,34 @@ All endpoints are hosted locally by default on port `5001`.
   ```json
   {
     "success": true,
-    "message": "Successfully scraped 30 jobs",
-    "total_results": 30,
-    "timestamp": "2026-07-05T07:30:00Z",
+    "message": "Successfully scraped 2 jobs",
+    "total_results": 2,
+    "timestamp": "2026-07-06T13:48:00Z",
     "search_parameters": {
-      "site_name": ["indeed", "linkedin", "glassdoor"],
-      "search_term": "react developer"
+      "search_term": "ai engineer",
+      "google_search_term": "automation",
+      "hours_old": 48,
+      "results_wanted": 20,
+      "country_indeed": "USA",
+      "is_remote": true,
+      "enforce_annual_salary": true,
+      "easy_apply": true
     },
     "jobs": [
       {
         "site": "linkedin",
-        "title": "Senior React Developer",
-        "company": "Tech Corp Inc",
-        "location": "Remote, US",
-        "date_posted": "2026-07-04",
-        "job_url": "https://www.linkedin.com/jobs/view/...",
-        "min_amount": 120000,
-        "max_amount": 150000,
-        "currency": "USD",
-        "is_remote": true,
-        "description": "We are seeking a senior react developer..."
+        "job_url": "https://www.linkedin.com/jobs/view/4429330149",
+        "title": "Machine Learning Engineer - Agentic AI",
+        "company": "5V Tech",
+        "location": "New York, United States",
+        "date_posted": "2026-07-06T00:00:00.000",
+        "posted_in_hours": 0.0,
+        "job_type": "fulltime",
+        "is_remote": false,
+        "job_level": "mid-senior level",
+        "job_function": "Engineering and Information Technology",
+        "description": "...",
+        "company_industry": "Software Development, Computer Hardware Manufacturing, and Artificial Intelligence"
       }
     ]
   }
