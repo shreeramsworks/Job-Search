@@ -175,13 +175,21 @@ class Google(Scraper):
         full_url = f"{self.url}?{urllib.parse.urlencode(params)}"
         log.info(f"Fetching initial Google search via StealthyFetcher: {full_url}")
         
+        import os
         from scrapling import StealthyFetcher
-        temp_dir = tempfile.mkdtemp(prefix="playwright_google_")
+        profile_dir = os.path.join(os.path.expanduser("~"), ".gemini", "playwright_google_profile")
+        os.makedirs(profile_dir, exist_ok=True)
         try:
-            res = StealthyFetcher.fetch(full_url, solve_cloudflare=False, user_data_dir=temp_dir)
+            res = StealthyFetcher.fetch(full_url, solve_cloudflare=False, user_data_dir=profile_dir)
             response_text = res.body.decode('utf-8', errors='ignore')
-        finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
+        except Exception as e:
+            log.warning(f"Google: Fetch failed with persistent profile: {e}. Retrying with temp profile...")
+            temp_dir = tempfile.mkdtemp(prefix="playwright_google_")
+            try:
+                res = StealthyFetcher.fetch(full_url, solve_cloudflare=False, user_data_dir=temp_dir)
+                response_text = res.body.decode('utf-8', errors='ignore')
+            finally:
+                shutil.rmtree(temp_dir, ignore_errors=True)
 
         pattern_fc = r'<div jsname="Yust4d"[^>]+data-async-fc="([^"]+)"'
         match_fc = re.search(pattern_fc, response_text)

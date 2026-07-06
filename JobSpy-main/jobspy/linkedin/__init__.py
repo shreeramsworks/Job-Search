@@ -189,8 +189,12 @@ class LinkedIn(Scraper):
                 currency=currency,
             )
 
-        title_tag = job_card.find("span", class_="sr-only")
-        title = title_tag.get_text(strip=True) if title_tag else "N/A"
+        title_tag = job_card.find("h3", class_="base-search-card__title")
+        if title_tag:
+            title = title_tag.get_text(strip=True)
+        else:
+            title_tag = job_card.find("span", class_="sr-only")
+            title = title_tag.get_text(strip=True) if title_tag else "N/A"
 
         company_tag = job_card.find("h4", class_="base-search-card__subtitle")
         company_a_tag = company_tag.find("a") if company_tag else None
@@ -199,7 +203,12 @@ class LinkedIn(Scraper):
             if company_a_tag and company_a_tag.has_attr("href")
             else ""
         )
-        company = company_a_tag.get_text(strip=True) if company_a_tag else "N/A"
+        company = "N/A"
+        if company_tag:
+            if company_a_tag:
+                company = company_a_tag.get_text(strip=True)
+            else:
+                company = company_tag.get_text(strip=True)
 
         metadata_card = job_card.find("div", class_="base-search-card__metadata")
         location = self._get_location(metadata_card)

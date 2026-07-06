@@ -208,7 +208,7 @@ class Indeed(Scraper):
 
         job_type = get_job_type(job["attributes"])
         timestamp_seconds = job["datePublished"] / 1000
-        date_posted = datetime.fromtimestamp(timestamp_seconds).strftime("%Y-%m-%d")
+        date_posted = datetime.utcfromtimestamp(timestamp_seconds).strftime("%Y-%m-%d")
         employer = job["employer"].get("dossier") if job["employer"] else None
         employer_details = employer.get("employerDetails", {}) if employer else {}
         rel_url = job["employer"]["relativeCompanyPageUrl"] if job["employer"] else None

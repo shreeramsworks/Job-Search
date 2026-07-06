@@ -22,6 +22,7 @@ from jobspy.util import (
     map_str_to_site,
     convert_to_annual,
     desired_order,
+    extract_company_from_description,
 )
 from jobspy.ziprecruiter import ZipRecruiter
 
@@ -38,11 +39,11 @@ def scrape_jobs(
     job_type: str | None = None,
     easy_apply: bool | None = None,
     results_wanted: int = 15,
-    country_indeed: str = "usa",
+    country_indeed: str | list[str] | None = "usa",
     proxies: list[str] | str | None = None,
     ca_cert: str | None = None,
     description_format: str = "markdown",
-    linkedin_fetch_description: bool | None = False,
+    linkedin_fetch_description: bool | None = True,
     linkedin_company_ids: list[int] | None = None,
     offset: int | None = 0,
     hours_old: int = None,
@@ -81,11 +82,31 @@ def scrape_jobs(
             ]
         return site_types
 
-    country_enum = Country.from_string(country_indeed)
+    # Parse countries from country_indeed
+    countries = []
+    if not country_indeed:
+        # Search major countries in dropdown to keep it fast
+        countries = [
+            Country.USA,
+            Country.INDIA,
+            Country.CANADA,
+            Country.UK,
+            Country.AUSTRALIA,
+            Country.BANGLADESH
+        ]
+    elif isinstance(country_indeed, list):
+        countries = [Country.from_string(c) if isinstance(c, str) else c for c in country_indeed]
+    elif isinstance(country_indeed, str):
+        countries = [Country.from_string(c.strip()) for c in country_indeed.split(",") if c.strip()]
+    else:
+        countries = [Country.from_string(str(country_indeed))]
+
+    if not countries:
+        countries = [Country.USA]
 
     scraper_input = ScraperInput(
         site_type=get_site_type(),
-        country=country_enum,
+        country=countries[0],
         search_term=search_term,
         google_search_term=google_search_term,
         location=location,
@@ -101,30 +122,55 @@ def scrape_jobs(
         hours_old=hours_old,
     )
 
-    def scrape_site(site: Site) -> Tuple[str, JobResponse]:
+    tasks = []
+    for site in scraper_input.site_type:
+        if site in (Site.INDEED, Site.GLASSDOOR):
+            for country in countries:
+                tasks.append((site, country))
+        else:
+            default_country = countries[0]
+            tasks.append((site, default_country))
+
+    def scrape_site(site: Site, country: Country) -> Tuple[str, JobResponse]:
         scraper_class = SCRAPER_MAPPING[site]
         scraper = scraper_class(proxies=proxies, ca_cert=ca_cert, user_agent=user_agent)
-        scraped_data: JobResponse = scraper.scrape(scraper_input)
+        
+        site_input = scraper_input.copy()
+        site_input.country = country
+        
+        scraped_data: JobResponse = scraper.scrape(site_input)
         cap_name = site.value.capitalize()
         site_name = "ZipRecruiter" if cap_name == "Zip_recruiter" else cap_name
         site_name = "LinkedIn" if cap_name == "Linkedin" else cap_name
-        create_logger(site_name).info(f"finished scraping")
+        create_logger(site_name).info(f"finished scraping for {country.name}")
         return site.value, scraped_data
 
     site_to_jobs_dict = {}
 
-    def worker(site):
-        site_val, scraped_info = scrape_site(site)
-        return site_val, scraped_info
+    def worker(site: Site, country: Country):
+        try:
+            site_val, scraped_info = scrape_site(site, country)
+            return site_val, scraped_info
+        except Exception as e:
+            cap_name = site.value.capitalize()
+            site_name = "ZipRecruiter" if cap_name == "Zip_recruiter" else cap_name
+            site_name = "LinkedIn" if cap_name == "Linkedin" else cap_name
+            create_logger(site_name).error(
+                f"Error scraping {site_name} for {country.name}: {e}"
+            )
+            return site.value, JobResponse(jobs=[])
 
     with ThreadPoolExecutor() as executor:
-        future_to_site = {
-            executor.submit(worker, site): site for site in scraper_input.site_type
+        future_to_task = {
+            executor.submit(worker, site, country): (site, country)
+            for site, country in tasks
         }
 
-        for future in as_completed(future_to_site):
+        for future in as_completed(future_to_task):
             site_value, scraped_data = future.result()
-            site_to_jobs_dict[site_value] = scraped_data
+            if site_value not in site_to_jobs_dict:
+                site_to_jobs_dict[site_value] = JobResponse(jobs=[])
+            site_to_jobs_dict[site_value].jobs.extend(scraped_data.jobs)
 
     jobs_dfs: list[pd.DataFrame] = []
 
@@ -184,7 +230,7 @@ def scrape_jobs(
                 else None
             )
 
-            #naukri-specific fields
+            # naukri-specific fields
             job_data["skills"] = (
                 ", ".join(job_data["skills"]) if job_data["skills"] else None
             )
@@ -193,6 +239,26 @@ def scrape_jobs(
             job_data["company_reviews_count"] = job_data.get("company_reviews_count")
             job_data["vacancy_count"] = job_data.get("vacancy_count")
             job_data["work_from_home_type"] = job_data.get("work_from_home_type")
+
+            # Fallback for company name if missing or N/A
+            comp_name = job_data.get("company_name")
+            if not comp_name or comp_name == "N/A":
+                extracted_comp = extract_company_from_description(job_data.get("description"))
+                if extracted_comp:
+                    job_data["company"] = extracted_comp
+                    job_data["company_name"] = extracted_comp
+
+            # Calculate posted_in_hours
+            if job_data.get("date_posted"):
+                try:
+                    post_date = pd.to_datetime(job_data["date_posted"])
+                    now = pd.Timestamp.now()
+                    diff = now.normalize() - post_date.normalize()
+                    job_data["posted_in_hours"] = int(diff.total_seconds() / 3600)
+                except:
+                    job_data["posted_in_hours"] = None
+            else:
+                job_data["posted_in_hours"] = None
 
             job_df = pd.DataFrame([job_data])
             jobs_dfs.append(job_df)
@@ -212,10 +278,19 @@ def scrape_jobs(
         # Reorder the DataFrame according to the desired order
         jobs_df = jobs_df[desired_order]
 
-        # Step 4: Sort the DataFrame as required
-        return jobs_df.sort_values(
-            by=["site", "date_posted"], ascending=[True, False]
-        ).reset_index(drop=True)
+        # Post-scraping filter for hours_old
+        if hours_old is not None:
+            temp_dates = pd.to_datetime(jobs_df["date_posted"], errors='coerce')
+            cutoff_date = pd.Timestamp.now().normalize() - pd.Timedelta(hours=hours_old)
+            jobs_df = jobs_df[temp_dates >= cutoff_date]
+
+        # Step 4: Sort the DataFrame as required (globally by date_posted descending, newest first)
+        sort_dates = pd.to_datetime(jobs_df["date_posted"], errors='coerce')
+        jobs_df["_sort_date"] = sort_dates
+        jobs_df = jobs_df.sort_values(
+            by=["_sort_date", "site"], ascending=[False, True]
+        ).drop(columns=["_sort_date"]).reset_index(drop=True)
+        return jobs_df
     else:
         return pd.DataFrame()
 

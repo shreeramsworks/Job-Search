@@ -300,7 +300,7 @@ class Naukri(Scraper):
         today = datetime.now()
         if not label:
             if created_date:
-                return datetime.fromtimestamp(created_date / 1000).date()  # Convert to date
+                return datetime.utcfromtimestamp(created_date / 1000).date()  # Convert to date
             return None
         label = label.lower()
         if "today" in label or "just now" in label or "few hours" in label:
@@ -314,7 +314,7 @@ class Naukri(Scraper):
                 log.debug(f"Date parsed: {days} days ago -> {parsed_date}")
                 return parsed_date
         elif created_date:
-            parsed_date = datetime.fromtimestamp(created_date / 1000).date()
+            parsed_date = datetime.utcfromtimestamp(created_date / 1000).date()
             log.debug(f"Date parsed from timestamp: {parsed_date}")
             return parsed_date
         log.debug("No date parsed")

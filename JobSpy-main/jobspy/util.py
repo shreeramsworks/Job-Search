@@ -174,6 +174,24 @@ def extract_emails_from_text(text: str) -> list[str] | None:
     return email_regex.findall(text)
 
 
+def extract_company_from_description(description: str) -> str | None:
+    if not description:
+        return None
+    # Look for patterns like "Company: XYZ" or "Client: XYZ" or "at XYZ, we are"
+    patterns = [
+        r"(?:company|employer|client|organization)\s*:\s*([A-Za-z0-9\s,&.\-]{3,40})",
+        r"(?:about|at)\s+([A-Z][A-Za-z0-9\s,&.\-]{2,40}),\s+we\s+are",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, description, re.IGNORECASE)
+        if match:
+            comp = match.group(1).strip()
+            comp = re.split(r"[\n\.]", comp)[0].strip()
+            if comp and len(comp) > 2:
+                return comp
+    return None
+
+
 def get_enum_from_job_type(job_type_str: str) -> JobType | None:
     """
     Given a string, returns the corresponding JobType enum member if a match is found.
@@ -355,6 +373,7 @@ desired_order = [
     "company",
     "location",
     "date_posted",
+    "posted_in_hours",
     "job_type",
     "salary_source",
     "interval",

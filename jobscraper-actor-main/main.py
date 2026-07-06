@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse, FileResponse
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Union
 from datetime import datetime
 import pandas as pd
 import io
@@ -48,6 +48,7 @@ class JobSite(str, Enum):
     GOOGLE = "google"
     BAYT = "bayt"
     NAUKRI = "naukri"
+    BDJOBS = "bdjobs"
 
 
 class JobTypeEnum(str, Enum):
@@ -110,9 +111,9 @@ class JobSearchRequest(BaseModel):
         le=100,
         description="Number of results to return per site (1-100)"
     )
-    country_indeed: str = Field(
+    country_indeed: Optional[Union[str, List[str]]] = Field(
         default="USA",
-        description="Country for Indeed/Glassdoor (e.g., 'USA', 'Canada', 'UK', 'India')"
+        description="Country for Indeed/Glassdoor (e.g., 'USA', 'Canada', 'UK', 'India', or list/comma-separated)"
     )
     description_format: DescriptionFormat = Field(
         default=DescriptionFormat.MARKDOWN,
@@ -1310,24 +1311,6 @@ async def root():
                     </div>
                 </div>
 
-                <!-- Location -->
-                <div class="form-group">
-                    <label for="location">Location</label>
-                    <div class="input-wrapper">
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="20" height="20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                        <input type="text" id="location" placeholder="e.g. San Francisco, CA">
-                    </div>
-                </div>
-
-                <!-- Radius -->
-                <div class="form-group">
-                    <label for="distance">Radius (Miles)</label>
-                    <div class="input-wrapper">
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="20" height="20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"></path></svg>
-                        <input type="number" id="distance" value="50" min="5" max="200">
-                    </div>
-                </div>
-
                 <!-- Custom Google search -->
                 <div class="form-group">
                     <label for="google-search-term">Google Custom Query (Optional)</label>
@@ -1383,6 +1366,7 @@ async def root():
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="20" height="20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 002 2h2m-4-3.5a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z"></path></svg>
                         <select id="country-indeed">
                             <option value="USA">United States</option>
+                            <option value="">All Countries</option>
                             <option value="India">India</option>
                             <option value="Canada">Canada</option>
                             <option value="UK">United Kingdom</option>
@@ -1462,6 +1446,10 @@ async def root():
                         <div class="site-chip" data-site="naukri" style="color: var(--color-naukri)">
                             <span class="site-indicator"></span>
                             Naukri
+                        </div>
+                        <div class="site-chip" data-site="bdjobs" style="color: var(--color-bdjobs)">
+                            <span class="site-indicator"></span>
+                            BDJobs
                         </div>
                     </div>
                 </div>
@@ -1600,7 +1588,7 @@ async def root():
                 </div>
             </div>
             <div class="drawer-footer">
-                <a href="#" target="_blank" class="apply-btn" id="drawer-apply-link">Apply Now on Official Site</a>
+                <a href="#" target="_blank" rel="noopener noreferrer" class="apply-btn" id="drawer-apply-link">Apply Now on Official Site</a>
             </div>
         </div>
     </div>
@@ -1620,8 +1608,8 @@ async def root():
         
         // Form inputs
         const searchTermInput = document.getElementById('search-term');
-        const locationInput = document.getElementById('location');
-        const distanceInput = document.getElementById('distance');
+        const locationInput = null;
+        const distanceInput = null;
         const googleSearchTermInput = document.getElementById('google-search-term');
         const jobTypeSelect = document.getElementById('job-type');
         const hoursOldSelect = document.getElementById('hours-old');
@@ -1708,7 +1696,7 @@ async def root():
             }
 
             const search_term = searchTermInput.value.trim();
-            const location = locationInput.value.trim();
+            const location = null;
             const google_search_term = googleSearchTermInput.value.trim();
 
             if (!search_term && !google_search_term) {
@@ -1728,14 +1716,14 @@ async def root():
             const payload = {
                 site_name: selectedSites,
                 search_term: search_term || null,
-                location: location || null,
+                location: null,
                 google_search_term: google_search_term || null,
-                distance: parseInt(distanceInput.value) || 50,
+                distance: null,
                 is_remote: isRemoteInput.checked,
                 job_type: jobTypeSelect.value || null,
                 hours_old: parseInt(hoursOldSelect.value) || null,
                 results_wanted: parseInt(resultsWantedInput.value) || 20,
-                country_indeed: countryIndeedSelect.value || "USA",
+                country_indeed: countryIndeedSelect.value,
                 enforce_annual_salary: enforceSalaryInput.checked,
                 easy_apply: easyApplyInput.checked || null,
                 description_format: "markdown",
@@ -1821,7 +1809,7 @@ async def root():
 
         // Clean values formatting
         function formatSalary(job) {
-            if (!job.min_amount && !job.max_amount) return "Not Listed";
+            if (!job.min_amount && !job.max_amount) return "Not Mentioned";
             const cur = job.currency === 'USD' ? '$' : (job.currency || '');
             const interval = job.salary_interval ? ` / ${job.salary_interval}` : '';
             if (job.min_amount && job.max_amount) {
@@ -1829,6 +1817,21 @@ async def root():
             }
             const amt = job.min_amount || job.max_amount;
             return `${cur}${amt.toLocaleString()}${interval}`;
+        }
+
+        // Safe Date formatter to avoid timezone shifting
+        function safeFormatDate(dateStr) {
+            if (!dateStr) return 'Date Not Listed';
+            const datePart = dateStr.split('T')[0];
+            const parts = datePart.split('-');
+            if (parts.length === 3) {
+                const year = parseInt(parts[0], 10);
+                const month = parseInt(parts[1], 10) - 1;
+                const day = parseInt(parts[2], 10);
+                const dateObj = new Date(year, month, day);
+                return dateObj.toLocaleDateString();
+            }
+            return dateStr;
         }
 
         // Render Job Cards into Grid
@@ -1850,8 +1853,8 @@ async def root():
                 card.innerHTML = `
                     <div class="job-card-header">
                         <div class="job-title-group">
-                            <div class="job-title" title="${job.title}">${job.title}</div>
-                            <div class="job-company">${job.company || job.company_name || 'Anonymous Employer'}</div>
+                            <div class="job-title" title="${job.title || 'Not Mentioned'}">${job.title || 'Not Mentioned'}</div>
+                            <div class="job-company">${job.company || job.company_name || 'Not Mentioned'}</div>
                         </div>
                         <span class="source-badge source-${job.site}">${job.site}</span>
                     </div>
@@ -1859,14 +1862,12 @@ async def root():
                     <div class="job-card-meta">
                         <div class="meta-tag">
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                            ${job.location || 'Remote / Unknown'}
+                            ${job.location || 'Not Mentioned'}
                         </div>
-                        ${job.job_type ? `
-                            <div class="meta-tag">
-                                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
-                                ${job.job_type}
-                            </div>
-                        ` : ''}
+                        <div class="meta-tag">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                            ${job.job_type || 'Not Mentioned'}
+                        </div>
                         ${job.is_remote ? `
                             <div class="meta-tag" style="border-color: rgba(16, 185, 129, 0.2); color: var(--success)">
                                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
@@ -1875,10 +1876,10 @@ async def root():
                         ` : ''}
                     </div>
 
-                    <div class="job-desc-snippet">${job.description || 'No description preview available.'}</div>
+                    <div class="job-desc-snippet">${job.description || 'Not Mentioned'}</div>
 
                     <div class="job-card-footer">
-                        <span class="post-date">${job.date_posted ? `Posted: ${new Date(job.date_posted).toLocaleDateString()}` : 'Date Not Listed'}</span>
+                        <span class="post-date">${job.date_posted ? `Posted: ${safeFormatDate(job.date_posted)}` : 'Not Mentioned'}</span>
                         <button class="view-btn">View Details</button>
                     </div>
                 `;
@@ -1910,21 +1911,18 @@ async def root():
 
         // Open Side Drawer Detail Panel
         function openDrawer(job) {
-            drawerTitle.textContent = job.title;
-            drawerCompany.textContent = job.company || job.company_name || 'Anonymous Employer';
-            drawerLocation.textContent = job.location || 'Remote / Unknown';
-            drawerSource.textContent = job.site;
-            drawerType.textContent = job.job_type || 'Unspecified';
+            drawerTitle.textContent = job.title || 'Not Mentioned';
+            drawerCompany.textContent = job.company || job.company_name || 'Not Mentioned';
+            drawerLocation.textContent = job.location || 'Not Mentioned';
+            drawerSource.textContent = job.site || 'Not Mentioned';
+            drawerType.textContent = job.job_type || 'Not Mentioned';
             drawerSalary.textContent = formatSalary(job);
             
-            if (job.emails && job.emails.length > 0) {
-                drawerContactSection.style.display = 'block';
-                drawerEmails.textContent = job.emails.join(', ');
-            } else {
-                drawerContactSection.style.display = 'none';
-            }
+            // Always display contact section and show emails or 'Not Mentioned'
+            drawerContactSection.style.display = 'block';
+            drawerEmails.textContent = (job.emails && job.emails.length > 0) ? job.emails.join(', ') : 'Not Mentioned';
 
-            drawerDescription.textContent = job.description || 'Full description not listed.';
+            drawerDescription.textContent = job.description || 'Not Mentioned';
             drawerApplyLink.href = job.job_url || '#';
 
             drawer.classList.add('open');
@@ -1946,14 +1944,14 @@ async def root():
             const payload = {
                 site_name: selectedSites,
                 search_term: searchTermInput.value.trim() || null,
-                location: locationInput.value.trim() || null,
+                location: null,
                 google_search_term: googleSearchTermInput.value.trim() || null,
-                distance: parseInt(distanceInput.value) || 50,
+                distance: null,
                 is_remote: isRemoteInput.checked,
                 job_type: jobTypeSelect.value || null,
                 hours_old: parseInt(hoursOldSelect.value) || null,
                 results_wanted: parseInt(resultsWantedInput.value) || 20,
-                country_indeed: countryIndeedSelect.value || "USA",
+                country_indeed: countryIndeedSelect.value,
                 enforce_annual_salary: enforceSalaryInput.checked,
                 easy_apply: easyApplyInput.checked || null,
                 description_format: "markdown",
@@ -2014,7 +2012,8 @@ async def get_supported_sites():
             "glassdoor": "Glassdoor - Jobs with company reviews and salary data",
             "google": "Google Jobs - Aggregated job listings from Google",
             "bayt": "Bayt - Middle East focused job portal",
-            "naukri": "Naukri - India's leading job portal"
+            "naukri": "Naukri - India's leading job portal",
+            "bdjobs": "BDJobs - Bangladesh's leading job portal"
         }
     }
 
@@ -2037,6 +2036,63 @@ async def get_supported_countries():
     }
 
 
+def detect_country(location: Optional[str]) -> str:
+    if not location:
+        return "USA"
+    loc_lower = location.lower().strip()
+    
+    # Common synonyms mapping
+    synonyms = {
+        "united states": "USA",
+        "usa": "USA",
+        "u.s.a.": "USA",
+        "u.s.": "USA",
+        "united kingdom": "UK",
+        "uk": "UK",
+        "u.k.": "UK",
+        "great britain": "UK",
+        "england": "UK",
+        "london": "UK",
+    }
+    
+    for syn, target in synonyms.items():
+        if syn in loc_lower:
+            return target
+            
+    # List of supported countries (case-insensitive search)
+    supported_countries = [
+        "Canada", "Australia", "India", "Germany", "France",
+        "Spain", "Italy", "Netherlands", "Belgium", "Switzerland", "Austria",
+        "Sweden", "Norway", "Denmark", "Finland", "Ireland", "Poland",
+        "Brazil", "Mexico", "Argentina", "Chile", "Colombia", "Singapore",
+        "Hong Kong", "Japan", "South Korea", "UAE", "Saudi Arabia", "Egypt",
+        "South Africa", "New Zealand", "Philippines", "Malaysia", "Indonesia",
+        "Thailand", "Vietnam", "Pakistan", "Bangladesh", "Turkey", "Israel"
+    ]
+    
+    for country in supported_countries:
+        if country.lower() in loc_lower:
+            return country
+            
+    # Common cities mapping to identify the country
+    india_cities = ["pune", "mumbai", "bangalore", "bengaluru", "delhi", "noida", "gurgaon", "hyderabad", "chennai", "kolkata", "ahmedabad", "surat"]
+    for city in india_cities:
+        if city in loc_lower:
+            return "India"
+            
+    canada_cities = ["toronto", "vancouver", "montreal", "ottawa", "calgary", "edmonton"]
+    for city in canada_cities:
+        if city in loc_lower:
+            return "Canada"
+            
+    germany_cities = ["berlin", "munich", "frankfurt", "hamburg", "cologne"]
+    for city in germany_cities:
+        if city in loc_lower:
+            return "Germany"
+            
+    return "USA"
+
+
 @app.post("/api/scrape", response_model=JobSearchResponse)
 async def scrape_jobs_endpoint(request: JobSearchRequest):
     """
@@ -2048,17 +2104,43 @@ async def scrape_jobs_endpoint(request: JobSearchRequest):
         # Prepare parameters
         site_names = [site.value for site in request.site_name] if request.site_name else None
         
+        country_indeed = request.country_indeed
+        if not country_indeed:
+            country_indeed = None
+            location = None
+        else:
+            if isinstance(country_indeed, list):
+                country_indeed = [
+                    "united arab emirates" if c.lower().strip() == "uae" else c
+                    for c in country_indeed
+                ]
+                location = None
+            elif isinstance(country_indeed, str):
+                parts = [c.strip() for c in country_indeed.split(",") if c.strip()]
+                normalized_parts = [
+                    "united arab emirates" if c.lower() == "uae" else c
+                    for c in parts
+                ]
+                if len(normalized_parts) > 1:
+                    country_indeed = normalized_parts
+                    location = None
+                else:
+                    country_indeed = normalized_parts[0] if normalized_parts else None
+                    location = country_indeed
+            else:
+                location = country_indeed
+            
         search_params = {
             "site_name": site_names,
             "search_term": request.search_term,
             "google_search_term": request.google_search_term,
-            "location": request.location,
-            "distance": request.distance,
+            "location": location,
+            "distance": None,
             "is_remote": request.is_remote,
             "job_type": request.job_type.value if request.job_type else None,
             "easy_apply": request.easy_apply,
             "results_wanted": request.results_wanted,
-            "country_indeed": request.country_indeed,
+            "country_indeed": country_indeed,
             "description_format": request.description_format.value,
             "linkedin_fetch_description": request.linkedin_fetch_description,
             "linkedin_company_ids": request.linkedin_company_ids,
@@ -2137,6 +2219,7 @@ async def scrape_jobs_simple(
             results_wanted=results_wanted,
             is_remote=is_remote,
             hours_old=hours_old,
+            linkedin_fetch_description=True,
             verbose=1
         )
         
