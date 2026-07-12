@@ -274,3 +274,44 @@ When integrating with n8n nodes:
 * **Symptom**: Checking health check endpoint fails.
 * **Reason**: The FastAPI app is not running, or uvicorn crashed immediately during boot.
 * **Fix**: Run `sudo journalctl -u jobspy-api --no-pager -n 50` to read the python traceback. This will tell you if you have python import errors, missing libraries, or syntax problems.
+
+### Issue 4: `Playwright Sync API inside the asyncio loop`
+* **Symptom**: Scraper queries for Google Jobs, Naukri, or ZipRecruiter fail, or the HTTP connection to n8n is abruptly aborted. Server logs show the error: `It looks like you are using Playwright Sync API inside the asyncio loop. Please use the Async API instead.`
+* **Reason**: FastAPI route endpoints defined with `async def` run inside uvicorn's main thread event loop. Playwright's sync library detects this loop and throws an exception, aborting the connection.
+* **Fix**: Ensure that the endpoint route handlers `/api/scrape` and `/api/scrape/simple` are defined as synchronous `def` (without the `async` keyword). FastAPI automatically offloads sync routes to a background thread pool outside the event loop.
+
+---
+
+## 🚀 7. Server Updates & Version 2.1.0 Release Notes
+
+### What's New in Version 2.1.0
+1. **Playwright Event Loop Fix**: Scraper endpoints offloaded to synchronous thread pool execution to prevent Playwright conflicts.
+2. **Dashboard Concurrency Selector**: Connected the frontend `#concurrency-mode` dropdown to the API payload to allow choosing between Controlled (default), Parallel, and Series scraping.
+3. **Details Drawer Expansion**: Added UI elements to display rich metadata when available:
+   - Required skills (rendered as visual chips)
+   - Company rating & reviews
+   - Experience required
+   - Work mode (Remote/Hybrid/Work from office)
+   - Open vacancies
+
+### How to Update the VPS Server
+We have created an automated shell script [update_server.sh](file:///c:/Users/shree/Downloads/jobsearch-engine-main/jobsearch-engine-main/jobscraper-actor-main/update_server.sh) to handle updates.
+
+#### Update Steps:
+1. SSH into your VPS:
+   ```bash
+   ssh root@<your-vps-ip>
+   ```
+2. Navigate to your repository root:
+   ```bash
+   cd /var/www/Job-Search
+   ```
+3. Make the update script executable (if not already):
+   ```bash
+   chmod +x jobscraper-actor-main/update_server.sh
+   ```
+4. Run the update script:
+   ```bash
+   ./jobscraper-actor-main/update_server.sh
+   ```
+This script will pull the latest code from GitHub, install any dependency updates, and restart the `jobspy-api` service.
