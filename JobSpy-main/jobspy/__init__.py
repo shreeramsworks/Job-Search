@@ -50,6 +50,8 @@ def scrape_jobs(
     enforce_annual_salary: bool = False,
     verbose: int = 0,
     user_agent: str = None,
+    concurrency_mode: str = "controlled",
+    max_workers: int | None = None,
     **kwargs,
 ) -> pd.DataFrame:
     """
@@ -67,6 +69,10 @@ def scrape_jobs(
         Site.BDJOBS: BDJobs,  # Add BDJobs to the scraper mapping
     }
     set_logger_level(verbose)
+    import sys
+    import asyncio
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     job_type = get_enum_from_value(job_type) if job_type else None
 
     def get_site_type():
@@ -84,8 +90,56 @@ def scrape_jobs(
 
     # Parse countries from country_indeed
     countries = []
-    if not country_indeed:
-        # Search major countries in dropdown to keep it fast
+    if country_indeed:
+        if isinstance(country_indeed, list):
+            countries = [Country.from_string(c) if isinstance(c, str) else c for c in country_indeed]
+        elif isinstance(country_indeed, str):
+            countries = [Country.from_string(c.strip()) for c in country_indeed.split(",") if c.strip()]
+        else:
+            countries = [Country.from_string(str(country_indeed))]
+
+    # Dynamic location parsing: if indeed country is empty but location is provided, detect country
+    if not countries and location:
+        loc_lower = location.lower()
+        detected_country = None
+        for country in Country:
+            if country in (Country.US_CANADA, Country.WORLDWIDE):
+                continue
+            names = country.value[0].split(",")
+            for name in names:
+                if name in loc_lower:
+                    detected_country = country
+                    break
+            if detected_country:
+                break
+        
+        if not detected_country:
+            india_cities = ["bangalore", "bengaluru", "mumbai", "pune", "delhi", "noida", "gurgaon", "hyderabad", "chennai", "kolkata"]
+            germany_cities = ["berlin", "munich", "frankfurt", "hamburg", "cologne"]
+            uk_cities = ["london", "manchester", "birmingham", "leeds", "glasgow"]
+            canada_cities = ["toronto", "vancouver", "montreal", "ottawa", "calgary"]
+            
+            for city in india_cities:
+                if city in loc_lower:
+                    detected_country = Country.INDIA
+                    break
+            for city in germany_cities:
+                if city in loc_lower:
+                    detected_country = Country.GERMANY
+                    break
+            for city in uk_cities:
+                if city in loc_lower:
+                    detected_country = Country.UK
+                    break
+            for city in canada_cities:
+                if city in loc_lower:
+                    detected_country = Country.CANADA
+                    break
+        if detected_country:
+            countries = [detected_country]
+
+    if not countries:
+        # Default major countries to search on if no country or location is specified
         countries = [
             Country.USA,
             Country.INDIA,
@@ -94,15 +148,6 @@ def scrape_jobs(
             Country.AUSTRALIA,
             Country.BANGLADESH
         ]
-    elif isinstance(country_indeed, list):
-        countries = [Country.from_string(c) if isinstance(c, str) else c for c in country_indeed]
-    elif isinstance(country_indeed, str):
-        countries = [Country.from_string(c.strip()) for c in country_indeed.split(",") if c.strip()]
-    else:
-        countries = [Country.from_string(str(country_indeed))]
-
-    if not countries:
-        countries = [Country.USA]
 
     scraper_input = ScraperInput(
         site_type=get_site_type(),
@@ -122,14 +167,43 @@ def scrape_jobs(
         hours_old=hours_old,
     )
 
+    def is_site_supported_for_country(site: Site, country: Country) -> bool:
+        if site == Site.NAUKRI:
+            return country == Country.INDIA
+        elif site == Site.BDJOBS:
+            return country == Country.BANGLADESH
+        elif site == Site.ZIP_RECRUITER:
+            return country in (Country.USA, Country.CANADA, Country.US_CANADA)
+        elif site == Site.GLASSDOOR:
+            return len(country.value) == 3
+        return True
+
     tasks = []
     for site in scraper_input.site_type:
         if site in (Site.INDEED, Site.GLASSDOOR):
             for country in countries:
-                tasks.append((site, country))
+                if is_site_supported_for_country(site, country):
+                    tasks.append((site, country))
         else:
-            default_country = countries[0]
-            tasks.append((site, default_country))
+            supported_country = None
+            for country in countries:
+                if is_site_supported_for_country(site, country):
+                    supported_country = country
+                    break
+            
+            if not supported_country:
+                # Soft fallback for platform-specific subdomains instead of skipping
+                if site == Site.NAUKRI:
+                    supported_country = Country.INDIA
+                elif site == Site.BDJOBS:
+                    supported_country = Country.BANGLADESH
+                elif site == Site.ZIP_RECRUITER:
+                    supported_country = Country.USA
+                else:
+                    supported_country = countries[0]
+                
+            tasks.append((site, supported_country))
+
 
     def scrape_site(site: Site, country: Country) -> Tuple[str, JobResponse]:
         scraper_class = SCRAPER_MAPPING[site]
@@ -160,17 +234,28 @@ def scrape_jobs(
             )
             return site.value, JobResponse(jobs=[])
 
-    with ThreadPoolExecutor() as executor:
-        future_to_task = {
-            executor.submit(worker, site, country): (site, country)
-            for site, country in tasks
-        }
-
-        for future in as_completed(future_to_task):
-            site_value, scraped_data = future.result()
+    if concurrency_mode == "series":
+        for site, country in tasks:
+            site_value, scraped_data = worker(site, country)
             if site_value not in site_to_jobs_dict:
                 site_to_jobs_dict[site_value] = JobResponse(jobs=[])
             site_to_jobs_dict[site_value].jobs.extend(scraped_data.jobs)
+    else:
+        workers = max_workers
+        if concurrency_mode == "controlled" and not workers:
+            workers = 3
+        
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_task = {
+                executor.submit(worker, site, country): (site, country)
+                for site, country in tasks
+            }
+
+            for future in as_completed(future_to_task):
+                site_value, scraped_data = future.result()
+                if site_value not in site_to_jobs_dict:
+                    site_to_jobs_dict[site_value] = JobResponse(jobs=[])
+                site_to_jobs_dict[site_value].jobs.extend(scraped_data.jobs)
 
     jobs_dfs: list[pd.DataFrame] = []
 

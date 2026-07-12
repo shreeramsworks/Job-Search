@@ -18,6 +18,10 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "JobSpy-main")))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Scrapling-main", "Scrapling-main")))
 
+import asyncio
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 from enum import Enum
 from jobspy import scrape_jobs
 
@@ -69,6 +73,12 @@ class OutputFormat(str, Enum):
     EXCEL = "excel"
 
 
+class ConcurrencyMode(str, Enum):
+    PARALLEL = "parallel"
+    SERIES = "series"
+    CONTROLLED = "controlled"
+
+
 class JobSearchRequest(BaseModel):
     """Request model for job search"""
     site_name: Optional[List[JobSite]] = Field(
@@ -112,8 +122,8 @@ class JobSearchRequest(BaseModel):
         description="Number of results to return per site (1-100)"
     )
     country_indeed: Optional[Union[str, List[str]]] = Field(
-        default="USA",
-        description="Country for Indeed/Glassdoor (e.g., 'USA', 'Canada', 'UK', 'India', or list/comma-separated)"
+        default=None,
+        description="Country for Indeed/Glassdoor (e.g., 'USA', 'Canada', 'UK', 'India', or list/comma-separated). If None, detected automatically from location."
     )
     description_format: DescriptionFormat = Field(
         default=DescriptionFormat.MARKDOWN,
@@ -150,6 +160,16 @@ class JobSearchRequest(BaseModel):
     output_format: OutputFormat = Field(
         default=OutputFormat.JSON,
         description="Output format (json, csv, or excel)"
+    )
+    concurrency_mode: ConcurrencyMode = Field(
+        default=ConcurrencyMode.CONTROLLED,
+        description="Concurrency mode for scraper (parallel, series, or controlled)"
+    )
+    max_workers: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=20,
+        description="Override maximum parallel workers/threads"
     )
 
     class Config:
@@ -1311,6 +1331,16 @@ async def root():
                     </div>
                 </div>
 
+                <!-- Location -->
+                <div class="form-group">
+                    <label for="location">Location</label>
+                    <div class="input-wrapper">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="20" height="20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                        <input type="text" id="location" placeholder="e.g. San Francisco, CA or Bangalore">
+                    </div>
+                </div>
+
+
                 <!-- Custom Google search -->
                 <div class="form-group">
                     <label for="google-search-term">Google Custom Query (Optional)</label>
@@ -1359,19 +1389,68 @@ async def root():
                     </div>
                 </div>
 
+                <!-- Search Concurrency Mode -->
+                <div class="form-group">
+                    <label for="concurrency-mode">Search Concurrency</label>
+                    <div class="input-wrapper">
+                        <svg fill="currentColor" stroke="none" viewBox="0 0 24 24" width="20" height="20"><path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"></path></svg>
+                        <select id="concurrency-mode">
+                            <option value="controlled">Controlled (Recommended)</option>
+                            <option value="series">Series (Safe & Slow)</option>
+                            <option value="parallel">Parallel (Fastest)</option>
+                        </select>
+                    </div>
+                </div>
+
                 <!-- Country for Indeed/Glassdoor -->
                 <div class="form-group">
                     <label for="country-indeed">Indeed Country</label>
                     <div class="input-wrapper">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="20" height="20"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 002 2h2m-4-3.5a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z"></path></svg>
                         <select id="country-indeed">
+                            <option value="">Detect Automatically</option>
                             <option value="USA">United States</option>
-                            <option value="">All Countries</option>
-                            <option value="India">India</option>
-                            <option value="Canada">Canada</option>
-                            <option value="UK">United Kingdom</option>
+                            <option value="Argentina">Argentina</option>
                             <option value="Australia">Australia</option>
+                            <option value="Austria">Austria</option>
                             <option value="Bangladesh">Bangladesh</option>
+                            <option value="Belgium">Belgium</option>
+                            <option value="Brazil">Brazil</option>
+                            <option value="Canada">Canada</option>
+                            <option value="Chile">Chile</option>
+                            <option value="Colombia">Colombia</option>
+                            <option value="Denmark">Denmark</option>
+                            <option value="Egypt">Egypt</option>
+                            <option value="Finland">Finland</option>
+                            <option value="France">France</option>
+                            <option value="Germany">Germany</option>
+                            <option value="Hong Kong">Hong Kong</option>
+                            <option value="India">India</option>
+                            <option value="Indonesia">Indonesia</option>
+                            <option value="Ireland">Ireland</option>
+                            <option value="Israel">Israel</option>
+                            <option value="Italy">Italy</option>
+                            <option value="Japan">Japan</option>
+                            <option value="Malaysia">Malaysia</option>
+                            <option value="Mexico">Mexico</option>
+                            <option value="Netherlands">Netherlands</option>
+                            <option value="New Zealand">New Zealand</option>
+                            <option value="Norway">Norway</option>
+                            <option value="Pakistan">Pakistan</option>
+                            <option value="Philippines">Philippines</option>
+                            <option value="Poland">Poland</option>
+                            <option value="Saudi Arabia">Saudi Arabia</option>
+                            <option value="Singapore">Singapore</option>
+                            <option value="South Africa">South Africa</option>
+                            <option value="South Korea">South Korea</option>
+                            <option value="Spain">Spain</option>
+                            <option value="Sweden">Sweden</option>
+                            <option value="Switzerland">Switzerland</option>
+                            <option value="Thailand">Thailand</option>
+                            <option value="Turkey">Turkey</option>
+                            <option value="UAE">United Arab Emirates (UAE)</option>
+                            <option value="UK">United Kingdom (UK)</option>
+                            <option value="Vietnam">Vietnam</option>
                         </select>
                     </div>
                 </div>
@@ -1427,27 +1506,27 @@ async def root():
                             <span class="site-indicator"></span>
                             Indeed
                         </div>
-                        <div class="site-chip" data-site="glassdoor" style="color: var(--color-glassdoor)">
+                        <div class="site-chip selected" data-site="glassdoor" style="color: var(--color-glassdoor)">
                             <span class="site-indicator"></span>
                             Glassdoor
                         </div>
-                        <div class="site-chip" data-site="zip_recruiter" style="color: var(--color-ziprecruiter)">
+                        <div class="site-chip selected" data-site="zip_recruiter" style="color: var(--color-ziprecruiter)">
                             <span class="site-indicator"></span>
                             ZipRecruiter
                         </div>
-                        <div class="site-chip" data-site="google" style="color: var(--color-google)">
+                        <div class="site-chip selected" data-site="google" style="color: var(--color-google)">
                             <span class="site-indicator"></span>
                             Google Jobs
                         </div>
-                        <div class="site-chip" data-site="bayt" style="color: var(--color-bayt)">
+                        <div class="site-chip selected" data-site="bayt" style="color: var(--color-bayt)">
                             <span class="site-indicator"></span>
                             Bayt
                         </div>
-                        <div class="site-chip" data-site="naukri" style="color: var(--color-naukri)">
+                        <div class="site-chip selected" data-site="naukri" style="color: var(--color-naukri)">
                             <span class="site-indicator"></span>
                             Naukri
                         </div>
-                        <div class="site-chip" data-site="bdjobs" style="color: var(--color-bdjobs)">
+                        <div class="site-chip selected" data-site="bdjobs" style="color: var(--color-bdjobs)">
                             <span class="site-indicator"></span>
                             BDJobs
                         </div>
@@ -1575,7 +1654,35 @@ async def root():
                     </div>
                 </div>
 
-                <div class="drawer-meta-section" id="drawer-contact-section" style="display: none; grid-template-columns: 1fr;">
+                <div class="drawer-meta-section" id="drawer-additional-section" style="display: none; margin-top: 1rem;">
+                    <div class="drawer-meta-item" id="drawer-experience-container">
+                        <span class="drawer-meta-label">Experience Required</span>
+                        <span class="drawer-meta-value" id="drawer-experience">-</span>
+                    </div>
+                    <div class="drawer-meta-item" id="drawer-wfh-container">
+                        <span class="drawer-meta-label">Work Mode</span>
+                        <span class="drawer-meta-value" id="drawer-wfh">-</span>
+                    </div>
+                    <div class="drawer-meta-item" id="drawer-rating-container">
+                        <span class="drawer-meta-label">Company Rating</span>
+                        <span class="drawer-meta-value" id="drawer-rating">-</span>
+                    </div>
+                    <div class="drawer-meta-item" id="drawer-vacancies-container">
+                        <span class="drawer-meta-label">Vacancies</span>
+                        <span class="drawer-meta-value" id="drawer-vacancies">-</span>
+                    </div>
+                </div>
+
+                <div class="drawer-meta-section" id="drawer-skills-section" style="display: none; grid-template-columns: 1fr; margin-top: 1rem;">
+                    <div class="drawer-meta-item">
+                        <span class="drawer-meta-label">Required Skills</span>
+                        <div id="drawer-skills-list" style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.35rem;">
+                            <!-- skills chips -->
+                        </div>
+                    </div>
+                </div>
+
+                <div class="drawer-meta-section" id="drawer-contact-section" style="display: none; grid-template-columns: 1fr; margin-top: 1rem;">
                     <div class="drawer-meta-item">
                         <span class="drawer-meta-label">Parsed Contact Emails</span>
                         <span class="drawer-meta-value" id="drawer-emails" style="font-family: monospace; color: var(--accent);">-</span>
@@ -1608,7 +1715,7 @@ async def root():
         
         // Form inputs
         const searchTermInput = document.getElementById('search-term');
-        const locationInput = null;
+        const locationInput = document.getElementById('location');
         const distanceInput = null;
         const googleSearchTermInput = document.getElementById('google-search-term');
         const jobTypeSelect = document.getElementById('job-type');
@@ -1618,6 +1725,7 @@ async def root():
         const isRemoteInput = document.getElementById('is-remote');
         const enforceSalaryInput = document.getElementById('enforce-salary');
         const easyApplyInput = document.getElementById('easy-apply');
+        const concurrencyModeSelect = document.getElementById('concurrency-mode');
 
         // KPI element tags
         const statTotal = document.getElementById('stat-total');
@@ -1689,14 +1797,17 @@ async def root():
 
         // Click handler to trigger scraper search
         searchBtn.addEventListener('click', async () => {
-            const selectedSites = getSelectedSites();
+            let selectedSites = getSelectedSites();
             if (selectedSites.length === 0) {
-                alert("Please select at least one job board to query!");
-                return;
+                // Default to selecting all platforms if none are selected
+                siteChips.forEach(chip => {
+                    chip.classList.add('selected');
+                });
+                selectedSites = getSelectedSites();
             }
 
             const search_term = searchTermInput.value.trim();
-            const location = null;
+            const location = locationInput.value.trim();
             const google_search_term = googleSearchTermInput.value.trim();
 
             if (!search_term && !google_search_term) {
@@ -1716,7 +1827,7 @@ async def root():
             const payload = {
                 site_name: selectedSites,
                 search_term: search_term || null,
-                location: null,
+                location: location || null,
                 google_search_term: google_search_term || null,
                 distance: null,
                 is_remote: isRemoteInput.checked,
@@ -1726,6 +1837,7 @@ async def root():
                 country_indeed: countryIndeedSelect.value,
                 enforce_annual_salary: enforceSalaryInput.checked,
                 easy_apply: easyApplyInput.checked || null,
+                concurrency_mode: concurrencyModeSelect.value || "controlled",
                 description_format: "markdown",
                 output_format: "json"
             };
@@ -1918,6 +2030,79 @@ async def root():
             drawerType.textContent = job.job_type || 'Not Mentioned';
             drawerSalary.textContent = formatSalary(job);
             
+            // Additional details (Experience, WFH, Rating, Vacancies)
+            const additionalSection = document.getElementById('drawer-additional-section');
+            const expContainer = document.getElementById('drawer-experience-container');
+            const wfhContainer = document.getElementById('drawer-wfh-container');
+            const ratingContainer = document.getElementById('drawer-rating-container');
+            const vacanciesContainer = document.getElementById('drawer-vacancies-container');
+            
+            let hasAdditional = false;
+
+            if (job.experience_range) {
+                document.getElementById('drawer-experience').textContent = job.experience_range;
+                expContainer.style.display = 'block';
+                hasAdditional = true;
+            } else {
+                expContainer.style.display = 'none';
+            }
+
+            if (job.work_from_home_type) {
+                document.getElementById('drawer-wfh').textContent = job.work_from_home_type;
+                wfhContainer.style.display = 'block';
+                hasAdditional = true;
+            } else {
+                wfhContainer.style.display = 'none';
+            }
+
+            if (job.company_rating) {
+                const ratingText = job.company_rating + (job.company_reviews_count ? ` (${job.company_reviews_count} reviews)` : '');
+                document.getElementById('drawer-rating').textContent = ratingText;
+                ratingContainer.style.display = 'block';
+                hasAdditional = true;
+            } else {
+                ratingContainer.style.display = 'none';
+            }
+
+            if (job.vacancy_count) {
+                document.getElementById('drawer-vacancies').textContent = job.vacancy_count;
+                vacanciesContainer.style.display = 'block';
+                hasAdditional = true;
+            } else {
+                vacanciesContainer.style.display = 'none';
+            }
+
+            if (hasAdditional) {
+                additionalSection.style.display = 'grid';
+            } else {
+                additionalSection.style.display = 'none';
+            }
+
+            // Required Skills
+            const skillsSection = document.getElementById('drawer-skills-section');
+            const skillsList = document.getElementById('drawer-skills-list');
+            skillsList.innerHTML = '';
+            if (job.skills) {
+                const skillsArr = job.skills.split(',').map(s => s.trim()).filter(Boolean);
+                if (skillsArr.length > 0) {
+                    skillsSection.style.display = 'block';
+                    skillsArr.forEach(skill => {
+                        const chip = document.createElement('span');
+                        chip.className = 'meta-tag';
+                        chip.style.backgroundColor = 'rgba(59, 130, 246, 0.1)';
+                        chip.style.borderColor = 'rgba(59, 130, 246, 0.2)';
+                        chip.style.color = '#60a5fa';
+                        chip.style.fontWeight = '600';
+                        chip.textContent = skill;
+                        skillsList.appendChild(chip);
+                    });
+                } else {
+                    skillsSection.style.display = 'none';
+                }
+            } else {
+                skillsSection.style.display = 'none';
+            }
+
             // Always display contact section and show emails or 'Not Mentioned'
             drawerContactSection.style.display = 'block';
             drawerEmails.textContent = (job.emails && job.emails.length > 0) ? job.emails.join(', ') : 'Not Mentioned';
@@ -1940,11 +2125,17 @@ async def root():
 
         // Export data triggers
         async function handleExport(format) {
-            const selectedSites = getSelectedSites();
+            let selectedSites = getSelectedSites();
+            if (selectedSites.length === 0) {
+                siteChips.forEach(chip => {
+                    chip.classList.add('selected');
+                });
+                selectedSites = getSelectedSites();
+            }
             const payload = {
                 site_name: selectedSites,
                 search_term: searchTermInput.value.trim() || null,
-                location: null,
+                location: locationInput.value.trim() || null,
                 google_search_term: googleSearchTermInput.value.trim() || null,
                 distance: null,
                 is_remote: isRemoteInput.checked,
@@ -2094,7 +2285,7 @@ def detect_country(location: Optional[str]) -> str:
 
 
 @app.post("/api/scrape", response_model=JobSearchResponse)
-async def scrape_jobs_endpoint(request: JobSearchRequest):
+def scrape_jobs_endpoint(request: JobSearchRequest):
     """
     Main endpoint to scrape jobs from multiple job boards
     
@@ -2107,14 +2298,12 @@ async def scrape_jobs_endpoint(request: JobSearchRequest):
         country_indeed = request.country_indeed
         if not country_indeed:
             country_indeed = None
-            location = None
         else:
             if isinstance(country_indeed, list):
                 country_indeed = [
                     "united arab emirates" if c.lower().strip() == "uae" else c
                     for c in country_indeed
                 ]
-                location = None
             elif isinstance(country_indeed, str):
                 parts = [c.strip() for c in country_indeed.split(",") if c.strip()]
                 normalized_parts = [
@@ -2123,12 +2312,13 @@ async def scrape_jobs_endpoint(request: JobSearchRequest):
                 ]
                 if len(normalized_parts) > 1:
                     country_indeed = normalized_parts
-                    location = None
                 else:
                     country_indeed = normalized_parts[0] if normalized_parts else None
-                    location = country_indeed
             else:
-                location = country_indeed
+                pass
+            
+        location = request.location
+
             
         search_params = {
             "site_name": site_names,
@@ -2148,6 +2338,8 @@ async def scrape_jobs_endpoint(request: JobSearchRequest):
             "hours_old": request.hours_old,
             "enforce_annual_salary": request.enforce_annual_salary,
             "verbose": request.verbose,
+            "concurrency_mode": request.concurrency_mode.value if request.concurrency_mode else None,
+            "max_workers": request.max_workers,
         }
         
         # Remove None values
@@ -2195,7 +2387,7 @@ async def scrape_jobs_endpoint(request: JobSearchRequest):
 
 
 @app.get("/api/scrape/simple")
-async def scrape_jobs_simple(
+def scrape_jobs_simple(
     search_term: str = Query(..., description="Job search term (e.g., 'software engineer')"),
     location: Optional[str] = Query(None, description="Location (e.g., 'San Francisco, CA')"),
     site_name: Optional[str] = Query(None, description="Comma-separated site names (e.g., 'indeed,linkedin')"),
